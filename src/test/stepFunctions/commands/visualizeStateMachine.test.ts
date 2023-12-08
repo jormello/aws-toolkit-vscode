@@ -7,7 +7,7 @@ import assert from 'assert'
 import * as sinon from 'sinon'
 import * as vscode from 'vscode'
 import { Disposable } from 'vscode-languageclient'
-import { AslVisualization } from '../../../../src/stepFunctions/commands/visualizeStateMachine/aslVisualization'
+import { AslVisualization } from '../../../stepFunctions/commands/visualizeStateMachine/aslVisualization'
 import { AslVisualizationManager } from '../../../../src/stepFunctions/commands/visualizeStateMachine/aslVisualizationManager'
 
 import { StateMachineGraphCache } from '../../../stepFunctions/utils'

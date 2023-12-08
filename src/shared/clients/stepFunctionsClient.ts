@@ -38,6 +38,52 @@ export class DefaultStepFunctionsClient {
         return response
     }
 
+    public async getExecutionHistory(
+        arn: string,
+        includeExecutionData: boolean,
+        nextToken: string | undefined
+    ): Promise<StepFunctions.GetExecutionHistoryOutput> {
+        const client = await this.createSdkClient()
+
+        const request: StepFunctions.GetExecutionHistoryInput = {
+            executionArn: arn,
+            includeExecutionData: includeExecutionData,
+            nextToken: nextToken,
+        }
+
+        const response: StepFunctions.GetExecutionHistoryOutput = await client.getExecutionHistory(request).promise()
+
+        return response
+    }
+
+    public async describeExecution(arn: string): Promise<StepFunctions.DescribeExecutionOutput> {
+        const client = await this.createSdkClient()
+
+        const request: StepFunctions.DescribeExecutionInput = {
+            executionArn: arn,
+        }
+
+        const response: StepFunctions.DescribeExecutionOutput = await client.describeExecution(request).promise()
+
+        return response
+    }
+
+    public async describeStateMachineForExecution(
+        arn: string
+    ): Promise<StepFunctions.DescribeStateMachineForExecutionOutput> {
+        const client = await this.createSdkClient()
+
+        const request: StepFunctions.DescribeStateMachineForExecutionInput = {
+            executionArn: arn,
+        }
+
+        const response: StepFunctions.DescribeStateMachineForExecutionOutput = await client
+            .describeStateMachineForExecution(request)
+            .promise()
+
+        return response
+    }
+
     public async executeStateMachine(arn: string, input?: string): Promise<StepFunctions.StartExecutionOutput> {
         const client = await this.createSdkClient()
 
