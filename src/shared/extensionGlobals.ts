@@ -134,6 +134,7 @@ interface ToolkitGlobals {
     visualizationResourcePaths: {
         localWebviewScriptsPath: Uri
         webviewBodyScript: Uri
+        executionWebviewBodyScript: Uri
         visualizationLibraryCachePath: Uri
         visualizationLibraryScript: Uri
         visualizationLibraryCSS: Uri

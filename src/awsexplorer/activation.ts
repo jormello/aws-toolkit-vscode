@@ -36,6 +36,8 @@ import { CodeCatalystAuthenticationProvider } from '../codecatalyst/auth'
 import { S3FolderNode } from '../s3/explorer/s3FolderNode'
 import { amazonQNode, refreshAmazonQ, refreshAmazonQRootNode } from '../amazonq/explorer/amazonQNode'
 import { submitFeedback } from '../feedback/vue/submitFeedback'
+import { ExecutionVisualizationManager } from '../stepFunctions/commands/visualizeStateMachineExecution/executionVisualizationManager'
+import { initalizeWebviewPaths } from '../stepFunctions/activation'
 
 /**
  * Activates the AWS Explorer UI and related functionality.
@@ -183,10 +185,15 @@ async function registerAwsExplorerCommands(
         )
     )
 
+    globals.visualizationResourcePaths = initalizeWebviewPaths(context.extensionContext)
+
+    const executionVisualizationManager: ExecutionVisualizationManager = new ExecutionVisualizationManager(
+        context.extensionContext
+    )
     context.extensionContext.subscriptions.push(
         Commands.register(
             'aws.executeStateMachine',
-            async (node: StateMachineNode) => await executeStateMachine(context, node)
+            async (node: StateMachineNode) => await executeStateMachine(context, node, executionVisualizationManager)
         ),
         Commands.register(
             'aws.renderStateMachineGraph',

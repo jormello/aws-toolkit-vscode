@@ -15,6 +15,7 @@ import { ExtContext } from '../../../shared/extensions'
 import { VueWebview } from '../../../webviews/main'
 import * as vscode from 'vscode'
 import { telemetry } from '../../../shared/telemetry/telemetry'
+import { ExecutionVisualizationManager } from '../../commands/visualizeStateMachineExecution/executionVisualizationManager'
 
 interface StateMachine {
     arn: string
@@ -27,7 +28,11 @@ export class ExecuteStateMachineWebview extends VueWebview {
     public readonly source = 'src/stepFunctions/vue/executeStateMachine/index.js'
     private readonly logger = getLogger()
 
-    public constructor(private readonly channel: vscode.OutputChannel, private readonly stateMachine: StateMachine) {
+    public constructor(
+        private readonly channel: vscode.OutputChannel,
+        private readonly stateMachine: StateMachine,
+        private readonly visualizationManager: ExecutionVisualizationManager
+    ) {
         super()
     }
 
@@ -58,6 +63,7 @@ export class ExecuteStateMachineWebview extends VueWebview {
                 localize('AWS.message.info.stepFunctions.executeStateMachine.started', 'Execution started')
             )
             this.channel.appendLine(startExecResponse.executionArn)
+            this.visualizationManager.visualizeStateMachineExecution(startExecResponse.executionArn)
         } catch (e) {
             executeResult = 'Failed'
             const error = e as Error
@@ -78,12 +84,21 @@ export class ExecuteStateMachineWebview extends VueWebview {
 
 const Panel = VueWebview.compilePanel(ExecuteStateMachineWebview)
 
-export async function executeStateMachine(context: ExtContext, node: StateMachineNode): Promise<void> {
-    const wv = new Panel(context.extensionContext, context.outputChannel, {
-        arn: node.details.stateMachineArn,
-        name: node.details.name,
-        region: node.regionCode,
-    })
+export async function executeStateMachine(
+    context: ExtContext,
+    node: StateMachineNode,
+    visualizationManager: ExecutionVisualizationManager
+): Promise<void> {
+    const wv = new Panel(
+        context.extensionContext,
+        context.outputChannel,
+        {
+            arn: node.details.stateMachineArn,
+            name: node.details.name,
+            region: node.regionCode,
+        },
+        visualizationManager
+    )
 
     await wv.show({
         title: localize('AWS.executeStateMachine.title', 'Start Execution'),

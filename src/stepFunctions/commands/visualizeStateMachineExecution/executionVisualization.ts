@@ -5,23 +5,12 @@
 
 import * as nls from 'vscode-nls'
 const localize = nls.loadMessageBundle()
-import { debounce } from 'lodash'
-import * as path from 'path'
 import * as vscode from 'vscode'
+import { StepFunctions } from 'aws-sdk'
 import { getLogger, Logger } from '../../../shared/logger'
-import { isDocumentValid } from '../../utils'
-import * as yaml from 'yaml'
 
-import { YAML_FORMATS } from '../../constants/aslFormats'
 import globals from '../../../shared/extensionGlobals'
-
-const yamlOptions: yaml.Options = {
-    merge: false,
-    maxAliasCount: 0,
-    schema: 'yaml-1.1',
-    version: '1.1',
-    prettyErrors: true,
-}
+import { DefaultStepFunctionsClient } from '../../../shared/clients/stepFunctionsClient'
 
 export interface MessageObject {
     command: string
@@ -30,16 +19,21 @@ export interface MessageObject {
     stateMachineData: string
 }
 
-export class AslVisualization {
-    public readonly documentUri: vscode.Uri
+export class ExecutionVisualization {
+    public readonly stateMachineExecutionArn: string
+
     public readonly webviewPanel: vscode.WebviewPanel
     protected readonly disposables: vscode.Disposable[] = []
     protected isPanelDisposed = false
+    private stateMachineDefinition: string | undefined
+    private updateExecutionGraphTimeoutId: NodeJS.Timeout | undefined
+    private readonly client: DefaultStepFunctionsClient
     private readonly onVisualizationDisposeEmitter = new vscode.EventEmitter<void>()
 
-    public constructor(textDocument: vscode.TextDocument) {
-        this.documentUri = textDocument.uri
-        this.webviewPanel = this.setupWebviewPanel(textDocument)
+    public constructor(stateMachineExecutionArn: string, client: DefaultStepFunctionsClient) {
+        this.stateMachineExecutionArn = stateMachineExecutionArn
+        this.client = client
+        this.webviewPanel = this.setupWebviewPanel(stateMachineExecutionArn)
     }
 
     public get onVisualizationDisposeEvent(): vscode.Event<void> {
@@ -62,58 +56,77 @@ export class AslVisualization {
         this.getPanel()?.reveal()
     }
 
-    public async sendUpdateMessage(updatedTextDocument: vscode.TextDocument) {
+    public async sendUpdateMessage(
+        stateMachineData: string,
+        executionEvents: StepFunctions.HistoryEventList,
+        executionStatus: string
+    ) {
         const logger: Logger = getLogger()
-        const isYaml = YAML_FORMATS.includes(updatedTextDocument.languageId)
-        const text = this.getText(updatedTextDocument)
-        let stateMachineData = text
-        let yamlErrors: string[] = []
-
-        if (isYaml) {
-            const parsed = yaml.parseDocument(text, yamlOptions)
-            yamlErrors = parsed.errors.map(error => error.message)
-            let json: any
-
-            try {
-                json = parsed.toJSON()
-            } catch (e) {
-                yamlErrors.push((e as Error).message)
-            }
-
-            stateMachineData = JSON.stringify(json)
-        }
-
-        const isValid = (await isDocumentValid(stateMachineData, updatedTextDocument)) && !yamlErrors.length
 
         const webview = this.getWebview()
         if (this.isPanelDisposed || !webview) {
             return
         }
 
-        logger.debug('Sending update message to webview.')
+        const events = { events: executionEvents }
 
+        logger.debug('Sending update message to webview.')
         webview.postMessage({
             command: 'update',
             stateMachineData,
-            isValid,
-            errors: yamlErrors,
+            executionEvents: events,
+            executionStatus,
         })
     }
 
-    protected getText(textDocument: vscode.TextDocument): string {
-        return textDocument.getText()
+    private async getUpdatedExecutionHistory(): Promise<StepFunctions.HistoryEventList> {
+        const executionHistoryOutput: StepFunctions.GetExecutionHistoryOutput = await this.client.getExecutionHistory(
+            this.stateMachineExecutionArn,
+            false,
+            undefined
+        )
+        // TODO handle over 1k events
+        return executionHistoryOutput.events
     }
 
-    private setupWebviewPanel(textDocument: vscode.TextDocument): vscode.WebviewPanel {
-        const documentUri = textDocument.uri
+    private async getUpdatedExecutionStatus(): Promise<string> {
+        const describeExecutionOutput: StepFunctions.DescribeExecutionOutput = await this.client.describeExecution(
+            this.stateMachineExecutionArn
+        )
+        return describeExecutionOutput.status
+    }
+
+    private async getStateMachineDefinition(): Promise<string> {
+        const describeStateMachineForExecutionOutput: StepFunctions.DescribeStateMachineForExecutionOutput =
+            await this.client.describeStateMachineForExecution(this.stateMachineExecutionArn)
+        return describeStateMachineForExecutionOutput.definition
+    }
+
+    private async updateExecutionGraph() {
+        if (!this.stateMachineDefinition) {
+            this.stateMachineDefinition = await this.getStateMachineDefinition()
+        }
+
+        const events = await this.getUpdatedExecutionHistory()
+        const status = await this.getUpdatedExecutionStatus()
+
+        // Stop refreshing the graph once the execution completes
+        if (status !== 'RUNNING') {
+            clearTimeout(this.updateExecutionGraphTimeoutId)
+        }
+
+        await this.sendUpdateMessage(this.stateMachineDefinition, events, status)
+    }
+
+    private setupWebviewPanel(stateMachineExecutionArn: string): vscode.WebviewPanel {
         const logger: Logger = getLogger()
 
         // Create and show panel
-        const panel = this.createVisualizationWebviewPanel(documentUri)
+        const panel = this.createVisualizationWebviewPanel(stateMachineExecutionArn)
 
         // Set the initial html for the webpage
         panel.webview.html = this.getWebviewContent(
-            panel.webview.asWebviewUri(globals.visualizationResourcePaths.webviewBodyScript),
+            panel.webview.asWebviewUri(globals.visualizationResourcePaths.executionWebviewBodyScript),
             panel.webview.asWebviewUri(globals.visualizationResourcePaths.visualizationLibraryScript),
             panel.webview.asWebviewUri(globals.visualizationResourcePaths.visualizationLibraryCSS),
             panel.webview.asWebviewUri(globals.visualizationResourcePaths.stateMachineCustomThemeCSS),
@@ -126,40 +139,6 @@ export class AslVisualization {
                 notInSync: localize('AWS.stepFunctions.graph.status.notInSync', 'Errors detected. Cannot preview.'),
                 syncing: localize('AWS.stepFunctions.graph.status.syncing', 'Rendering ASL graph...'),
             }
-        )
-
-        // Add listener function to update the graph on document save
-        this.disposables.push(
-            vscode.workspace.onDidSaveTextDocument(async savedTextDocument => {
-                if (savedTextDocument && savedTextDocument.uri.path === documentUri.path) {
-                    await this.sendUpdateMessage(savedTextDocument)
-                }
-            })
-        )
-
-        // If documentUri being tracked is no longer found (due to file closure or rename), close the panel.
-        this.disposables.push(
-            vscode.workspace.onDidCloseTextDocument(documentWillSaveEvent => {
-                if (!this.trackedDocumentDoesExist(documentUri) && !this.isPanelDisposed) {
-                    panel.dispose()
-                    vscode.window.showInformationMessage(
-                        localize(
-                            'AWS.stepfunctions.visualisation.errors.rename',
-                            'State machine visualization closed due to file renaming or closure.'
-                        )
-                    )
-                }
-            })
-        )
-
-        const debouncedUpdate = debounce(this.sendUpdateMessage.bind(this), 500)
-
-        this.disposables.push(
-            vscode.workspace.onDidChangeTextDocument(async textDocumentEvent => {
-                if (textDocumentEvent.document.uri.path === documentUri.path) {
-                    await debouncedUpdate(textDocumentEvent.document)
-                }
-            })
         )
 
         // Handle messages from the webview
@@ -175,18 +154,12 @@ export class AslVisualization {
                     case 'webviewRendered': {
                         // Webview has finished rendering, so now we can give it our
                         // initial state machine definition.
-                        await this.sendUpdateMessage(textDocument)
+                        this.updateExecutionGraph()
+                        this.updateExecutionGraphTimeoutId = setInterval(() => {
+                            this.updateExecutionGraph()
+                        }, 1000)
                         break
                     }
-
-                    case 'viewDocument':
-                        try {
-                            const document = await vscode.workspace.openTextDocument(documentUri)
-                            vscode.window.showTextDocument(document, vscode.ViewColumn.One)
-                        } catch (e) {
-                            logger.error(e as Error)
-                        }
-                        break
                 }
             })
         )
@@ -197,7 +170,6 @@ export class AslVisualization {
                 return
             }
             this.isPanelDisposed = true
-            debouncedUpdate.cancel()
             this.onVisualizationDisposeEmitter.fire()
             this.disposables.forEach(disposable => {
                 disposable.dispose()
@@ -214,10 +186,10 @@ export class AslVisualization {
         return panel
     }
 
-    private createVisualizationWebviewPanel(documentUri: vscode.Uri): vscode.WebviewPanel {
+    private createVisualizationWebviewPanel(stateMachineExecutionArn: string): vscode.WebviewPanel {
         return vscode.window.createWebviewPanel(
-            'stateMachineVisualization',
-            localize('AWS.stepFunctions.graph.titlePrefix', 'Graph: {0}', path.basename(documentUri.fsPath)),
+            'stateMachineExecutionVisualization',
+            localize('AWS.stepFunctions.executionGraph.titlePrefix', 'Graph: {0}', stateMachineExecutionArn),
             {
                 preserveFocus: true,
                 viewColumn: vscode.ViewColumn.Beside,
@@ -299,11 +271,5 @@ export class AslVisualization {
             <script src='${webviewBodyScript}'></script>
         </body>
     </html>`
-    }
-
-    private trackedDocumentDoesExist(trackedDocumentURI: vscode.Uri): boolean {
-        const document = vscode.workspace.textDocuments.find(doc => doc.fileName === trackedDocumentURI.fsPath)
-
-        return document !== undefined
     }
 }

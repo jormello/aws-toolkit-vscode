@@ -14,6 +14,7 @@ import { AwsContext } from '../shared/awsContext'
 import { activate as activateASL } from './asl/client'
 import { createStateMachineFromTemplate } from './commands/createStateMachineFromTemplate'
 import { publishStateMachine } from './commands/publishStateMachine'
+import { visualizeStateMachineExecution } from './commands/visualizeStateMachineExecution/visualizeStateMachineExecution'
 import { AslVisualizationManager } from './commands/visualizeStateMachine/aslVisualizationManager'
 import { Commands } from '../shared/vscode/commands2'
 
@@ -22,6 +23,7 @@ import { AslVisualizationCDKManager } from './commands/visualizeStateMachine/asl
 import { renderCdkStateMachineGraph } from './commands/visualizeStateMachine/renderStateMachineGraphCDK'
 import { ToolkitError } from '../shared/errors'
 import { telemetry } from '../shared/telemetry/telemetry'
+import { ExecutionVisualizationManager } from './commands/visualizeStateMachineExecution/executionVisualizationManager'
 
 /**
  * Activate Step Functions related functionality for the extension.
@@ -63,6 +65,18 @@ export const previewStateMachineCommand = Commands.declare(
     }
 )
 
+export const visualizeStateMachineExecutionCommand = Commands.declare(
+    'aws.visualizeStateMachineExecution',
+    (globalState: vscode.Memento, manager: ExecutionVisualizationManager, outputChannel: vscode.OutputChannel) =>
+        async (arg?: vscode.TextEditor | vscode.Uri) => {
+            try {
+                return await visualizeStateMachineExecution(manager, outputChannel)
+            } finally {
+                telemetry.stepfunctions_previewstatemachine.emit()
+            }
+        }
+)
+
 async function registerStepFunctionCommands(
     extensionContext: vscode.ExtensionContext,
     awsContext: AwsContext,
@@ -70,10 +84,17 @@ async function registerStepFunctionCommands(
 ): Promise<void> {
     const visualizationManager = new AslVisualizationManager(extensionContext)
     const cdkVisualizationManager = new AslVisualizationCDKManager(extensionContext)
+    const executionVisualizationManager = new ExecutionVisualizationManager(extensionContext)
 
     extensionContext.subscriptions.push(
         previewStateMachineCommand.register(extensionContext.globalState, visualizationManager),
         renderCdkStateMachineGraph.register(extensionContext.globalState, cdkVisualizationManager),
+        visualizeStateMachineExecutionCommand.register(
+            extensionContext.globalState,
+            executionVisualizationManager,
+            outputChannel
+        ),
+
         Commands.register('aws.stepfunctions.createStateMachineFromTemplate', async () => {
             try {
                 await createStateMachineFromTemplate(extensionContext)
@@ -84,6 +105,9 @@ async function registerStepFunctionCommands(
         Commands.register('aws.stepfunctions.publishStateMachine', async (node?: any) => {
             const region: string | undefined = node?.regionCode
             await publishStateMachine(awsContext, outputChannel, region)
+        }),
+        Commands.register('aws.stepfunctions.visualizeStateMachineExecution', async (node?: any) => {
+            await visualizeStateMachineExecution(executionVisualizationManager, outputChannel)
         })
     )
 }
@@ -100,6 +124,9 @@ export function initalizeWebviewPaths(
     return {
         localWebviewScriptsPath: vscode.Uri.file(context.asAbsolutePath(join('resources', 'js'))),
         webviewBodyScript: vscode.Uri.file(context.asAbsolutePath(join('resources', 'js', 'graphStateMachine.js'))),
+        executionWebviewBodyScript: vscode.Uri.file(
+            context.asAbsolutePath(join('resources', 'js', 'graphStateMachineExecution.js'))
+        ),
         visualizationLibraryCachePath: vscode.Uri.file(visualizationLibraryCache),
         visualizationLibraryScript: vscode.Uri.file(join(visualizationLibraryCache, 'graph.js')),
         visualizationLibraryCSS: vscode.Uri.file(join(visualizationLibraryCache, 'graph.css')),
