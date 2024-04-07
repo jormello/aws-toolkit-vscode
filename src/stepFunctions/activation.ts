@@ -135,6 +135,9 @@ export function initalizeWebviewPaths(
         stateMachineCustomThemeCSS: vscode.Uri.file(
             context.asAbsolutePath(join('resources', 'css', 'stateMachineRender.css'))
         ),
+        stateMachineExecutionCustomThemeCSS: vscode.Uri.file(
+            context.asAbsolutePath(join('resources', 'css', 'stateMachineExecutionRender.css'))
+        ),
     }
 }
 

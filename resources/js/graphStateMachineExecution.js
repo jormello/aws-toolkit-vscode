@@ -28,16 +28,19 @@ function updateGraph(message) {
     statusInfoContainer.classList.remove('in-sync-asl', 'not-in-sync-asl', 'start-error-asl')
     statusInfoContainer.classList.add('syncing-asl')
 
-    if (message.executionStatus === 'IN_PROGRESS') {
-        statusInfoContainer.classList.remove('syncing-asl', 'in-sync-asl', 'start-error-asl')
+    if (message.executionStatus === 'RUNNING') {
+        statusInfoContainer.classList.remove('execution-succeeded-status', 'execution-failed-status')
+        statusInfoContainer.classList.add('execution-running-status')
+    }
 
-        if (hasRenderedOnce) {
-            statusInfoContainer.classList.add('not-in-sync-asl')
-        } else {
-            statusInfoContainer.classList.add('start-error-asl')
-        }
+    if (message.executionStatus === 'SUCCEEDED') {
+        statusInfoContainer.classList.remove('execution-running-status', 'execution-failed-status')
+        statusInfoContainer.classList.add('execution-succeeded-status')
+    }
 
-        return
+    if (message.executionStatus === 'FAILED') {
+        statusInfoContainer.classList.remove('execution-running-status', 'execution-succeeded-status')
+        statusInfoContainer.classList.add('execution-failed-status')
     }
 
     try {
@@ -55,24 +58,7 @@ function updateGraph(message) {
         lastStateMachineData = message.stateMachineData
         lastExecutionHistory = message.executionEvents
     } catch (err) {
-        console.log('Error parsing state machine definition.')
         console.log(err)
-
-        vscode.postMessage({
-            command: 'updateResult',
-            text: 'Error parsing state machine definition.',
-            error: err.toString(),
-            stateMachineData: message.stateMachineData,
-            executionEvents: message.executionEvents,
-        })
-
-        statusInfoContainer.classList.remove('syncing-asl', 'in-sync-asl', 'start-error-asl')
-
-        if (hasRenderedOnce) {
-            statusInfoContainer.classList.add('not-in-sync-asl')
-        } else {
-            statusInfoContainer.classList.add('start-error-asl')
-        }
     }
 }
 

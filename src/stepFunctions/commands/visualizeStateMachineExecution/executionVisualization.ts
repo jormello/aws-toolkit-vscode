@@ -113,6 +113,9 @@ export class ExecutionVisualization {
         // Stop refreshing the graph once the execution completes
         if (status !== 'RUNNING') {
             clearTimeout(this.updateExecutionGraphTimeoutId)
+            setInterval(() => {
+                this.updateExecutionGraph()
+            }, 5000)
         }
 
         await this.sendUpdateMessage(this.stateMachineDefinition, events, status)
@@ -124,21 +127,18 @@ export class ExecutionVisualization {
         // Create and show panel
         const panel = this.createVisualizationWebviewPanel(stateMachineExecutionArn)
 
+        const executionId = this.stateMachineExecutionArn.split(':')[7]
+        const stateMachineName = this.stateMachineExecutionArn.split(':')[6]
+        const region = this.stateMachineExecutionArn.split(':')[3]
+
         // Set the initial html for the webpage
         panel.webview.html = this.getWebviewContent(
             panel.webview.asWebviewUri(globals.visualizationResourcePaths.executionWebviewBodyScript),
             panel.webview.asWebviewUri(globals.visualizationResourcePaths.visualizationLibraryScript),
             panel.webview.asWebviewUri(globals.visualizationResourcePaths.visualizationLibraryCSS),
-            panel.webview.asWebviewUri(globals.visualizationResourcePaths.stateMachineCustomThemeCSS),
+            panel.webview.asWebviewUri(globals.visualizationResourcePaths.stateMachineExecutionCustomThemeCSS),
             panel.webview.cspSource,
-            {
-                inSync: localize(
-                    'AWS.stepFunctions.graph.status.inSync',
-                    'Previewing ASL document. <a href="" style="text-decoration:none;">View</a>'
-                ),
-                notInSync: localize('AWS.stepFunctions.graph.status.notInSync', 'Errors detected. Cannot preview.'),
-                syncing: localize('AWS.stepFunctions.graph.status.syncing', 'Rendering ASL graph...'),
-            }
+            `Visualizing executionId "${executionId}" for "${stateMachineName}" in "${region}"`
         )
 
         // Handle messages from the webview
@@ -212,11 +212,7 @@ export class ExecutionVisualization {
         vsCodeCustomStyling: vscode.Uri, // globals.visualizationResourcePaths.visualizationLibraryCSS  // graph.css (from visualizationLibraryCachePath)
         graphStateMachineDefaultStyles: vscode.Uri, // globals.visualizationResourcePaths.stateMachineCustomThemeCSS // resources/css/stateMachineRender.css
         cspSource: string, // panel.webview.cspSource
-        statusTexts: {
-            syncing: string
-            notInSync: string
-            inSync: string
-        }
+        statusTexts: string
     ): string {
         return `
     <!DOCTYPE html>
@@ -243,9 +239,7 @@ export class ExecutionVisualization {
                     <circle cx="50" cy="50" r="42" stroke-width="4" />
                 </svg>
                 <div class="status-messages">
-                    <span class="previewing-asl-message">${statusTexts.inSync}</span>
-                    <span class="rendering-asl-message">${statusTexts.syncing}</span>
-                    <span class="error-asl-message">${statusTexts.notInSync}</span>
+                    <span class="execution-running-message">${statusTexts}</span>
                 </div>
             </div>
             <div class="graph-buttons-container">

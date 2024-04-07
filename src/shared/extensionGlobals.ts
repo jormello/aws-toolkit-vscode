@@ -140,6 +140,7 @@ interface ToolkitGlobals {
         visualizationLibraryCSS: Uri
         stateMachineCustomThemePath: Uri
         stateMachineCustomThemeCSS: Uri
+        stateMachineExecutionCustomThemeCSS: Uri
     }
 
     readonly manifestPaths: {
